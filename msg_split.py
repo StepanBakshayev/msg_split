@@ -12,7 +12,7 @@ class UnprocessedValue(Exception):
     pass
 
 
-split_tags = frozenset("p b strong i ul ol div span".split(' '))
+split_tags = frozenset("p b strong i ul ol div span".split(' ')) | {BeautifulSoup.ROOT_TAG_NAME}
 
 
 def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
@@ -45,21 +45,25 @@ def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
                 piece_end = element._format_tag(
                     eventual_encoding, formatter, opening=False
                 )
+
                 weight = len(piece) + len(piece_end)
                 weights.append(weight + parents_weight)
                 budget += weights[-1]
-                parents_weight += weights
-                elements.append(element)
+                parents_weight += weights[-1]
+                elements.append((Tag.START_ELEMENT_EVENT, element))
 
-                parents.append((element, piece_end))
+                parents.append((element, piece, piece_end))
 
             case Tag.END_ELEMENT_EVENT:
-                _, piece = parents.pop()
-                parents_len -= len(parents)
+                _, piece_start, piece = parents.pop()
+
+                weight = -(len(piece_start))
 
             case Tag.EMPTY_ELEMENT_EVENT | Tag.STRING_ELEMENT_EVENT:
                 piece = element.output_ready(formatter)
-                elements.append(None)
+                # is parents variable always something?
+                parent = parents[-1] if parents else None
+                elements.append(parent)
 
             case unhandled:
                 raise RuntimeError(f'unhandled event {unhandled!r}', unhandled)
@@ -67,11 +71,14 @@ def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
         pieces.append(piece)
 
         if budget > max_len:
-            backtrack = budget
             # The loop makes at least one iteration because append operation is just above.
             for i, weight in enumerate(reversed(pieces), len(pieces)-1):
-                backtrack -= weight
-                if backtrack <= max_len and elements[i] and elements[i].name in split_tags:
+                budget -= weight
+                if (budget <= max_len
+                    and elements[i]
+                    and elements[i][0].name in split_tags
+                    and elements[i][1] is not Tag.START_ELEMENT_EVENT
+                ):
                     break
 
             if i == 0:
@@ -81,12 +88,44 @@ def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
             dump = pieces[:i]
             pieces = pieces[i:]
 
-            
+            branch = elements[i-1][0]
+            if elements[i-1][1] is Tag.END_ELEMENT_EVENT:
+                branch = branch.parent
 
+            closing = []
+            while branch is not None:
+                closing.append(branch._format_tag(
+                    eventual_encoding, formatter, opening=False
+                ))
+                branch = branch.parent
 
+            dump.extend(reversed(closing))
+
+            fragment = ''.join(dump)
+            assert len(fragment) == max_len, ('Fragment does not exceed limit.', fragment, len(fragment), max_len)
+
+            yield fragment
 
     if pieces:
-        yield ''.join(pieces)
+        dump = pieces
+        i = len(pieces) -1
+        branch = elements[i-1][0]
+        if elements[i-1][1] is Tag.END_ELEMENT_EVENT:
+            branch = branch.parent
+
+        closing = []
+        while branch is not None:
+            closing.append(branch._format_tag(
+                eventual_encoding, formatter, opening=False
+            ))
+            branch = branch.parent
+
+        dump.extend(reversed(closing))
+
+        fragment = ''.join(dump)
+        assert len(fragment) == max_len, ('Fragment does not exceed limit.', fragment, len(fragment), max_len)
+
+        yield fragment
 
 
 def main(opts):
