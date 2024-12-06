@@ -1,5 +1,6 @@
 from argparse import ArgumentParser
 from enum import Enum
+from itertools import chain
 from operator import attrgetter, itemgetter
 from typing import Iterator
 
@@ -41,9 +42,6 @@ def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
     eventual_encoding = 'utf-8'
     formatter = soup.formatter_for_name('minimal')
 
-    # Two phrase algorithm
-    # 1. greedy collect content (Tag.contents) until it exceeds max_len
-    # 2. cut fragment
     budget = 0
     piece = ''
     event, element = None, None
@@ -149,7 +147,7 @@ def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
                     fragment = ''.join(forward[:-len(backward)])
                     forward = forward[-len(backward):]
                 else:
-                    fragment = ''.join(forward+list(reversed(backward)))
+                    fragment = ''.join(chain(forward, reversed(backward)))
                     forward.clear()
                     for parent, _ in parents:
                         parent_piece = parent._format_tag(
