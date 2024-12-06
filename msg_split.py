@@ -1,6 +1,6 @@
 from argparse import ArgumentParser
 from enum import Enum
-from operator import attrgetter, itemgetter
+from operator import attrgetter
 from typing import Iterator
 
 from bs4 import BeautifulSoup
@@ -50,6 +50,7 @@ def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
     element_name = None
     weight = 0
     forward = []
+    opening = []
     backward = []
     parents = []
     parents_length = 0  # it includes all weight from opening and closing tags.
@@ -63,7 +64,7 @@ def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
             raise RuntimeError(f'{sourceline}:{sourcepos}: processing is in infinitive cycle.', sourceline, sourcepos)
 
         if __debug__:
-            print(f'{budget=} {state=!s} {fragment=} {event=!s} {element_name=} {weight=} {piece=}')
+            print(f'{budget=}/{max_len=} {state=!s} {fragment=} {event=!s} {parents_length=} {element_name=} {weight=} {piece=}')
 
         match state:
             case Automata.pull:
@@ -98,7 +99,6 @@ def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
                             eventual_encoding, formatter, opening=False
                         )
                         weight = len(piece) + len(piece_end)
-                        print(f'{len(piece)=} + {len(piece_end)=} = {weight=} {budget=}')
                         if weight + budget > max_len:
                             state = Automata.drain
 
@@ -106,6 +106,7 @@ def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
                             state = Automata.pull
                             budget += weight
                             forward.append(piece)
+                            opening.append(True)
                             backward.append(piece_end)
                             parents.append((element, weight))
                             parents_length += weight
@@ -113,6 +114,8 @@ def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
                     case Event.END_ELEMENT_EVENT:
                         state = Automata.pull
                         forward.append(backward.pop())
+                        opening.append(False)
+                        piece = ''
                         _, weight = parents.pop()
                         parents_length -= weight
 
@@ -126,6 +129,7 @@ def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
                             state = Automata.pull
                             budget += weight
                             forward.append(piece)
+                            opening.append(False)
 
                     case unhandled:
                         raise RuntimeError(f'{sourceline}:{sourcepos}: unhandled event {unhandled!r}.', sourceline, sourcepos, unhandled)
@@ -141,18 +145,29 @@ def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
 
                 state = Automata.push
 
-                fragment = ''.join(forward+backward)
+                assert len(forward) == len(opening), 'Forward and opening grow together.'
+                nested_index = len(forward)
+                for open_marker in reversed(opening):
+                    if not open_marker:
+                        break
+                    nested_index -= 1
+                print(f'{forward=} {backward=} {nested_index=}')
+                # parent = element.parent
+                # for e in reversed(elements):
+                #     print(f'{e.name=} {parent.name=} {nested_index=}')
+                #     if e != parent:
+                #         break
+                #     parent = e.parent
+                #     nested_index -= 1
+
+                fragment = ''.join(forward[:nested_index]+backward[nested_index+1:])
                 assert len(fragment) <= max_len, ('Fragment length fits max_len', sourceline, sourcepos, fragment[:38], len(fragment), max_len)
                 yield fragment
 
-                forward.clear()
+                forward = forward[nested_index:]
+                opening = opening[nested_index:]
+                backward = backward[:nested_index+1]
                 budget = parents_length
-                for parent, _ in parents:
-                    parent_piece = parent._format_tag(
-                        eventual_encoding, formatter, opening=True
-                    )
-                    budget += len(parent_piece)
-                    forward.append(parent_piece)
 
     fragment = ''.join(forward+backward)
     assert len(fragment) <= max_len, ('Fragment length fits max_len', sourceline, sourcepos, fragment[:38], len(fragment), max_len)
