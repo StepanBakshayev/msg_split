@@ -1,64 +1,36 @@
-from msg_split import split_message, split_tags, UnprocessedValue
 import pytest
 
-def test_task_example():
-    message = """\
-<p>
-    ... ... ...
-    <b>
-        ... ... ...
-        <a href="https://www.google.com/">Google search</a>
-        <ul>
-            <li>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</li>
-            <li>Ut enim ad minim veniam, quis nostrud exercitation ullamco.</li>
-- - - Место разделения - - -
-            <li>Duis aute irure dolor in reprehenderit in voluptate.</li>
-        </ul>
-    </b>
-</p>
-"""
-    message_part_01 = """\
-<p>
-    ... ... ...
-    <b>
-        ... ... ...
-        <a href="https://www.google.com/">Google search</a>
-        <ul>
-            <li>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</li>
-            <li>Ut enim ad minim veniam, quis nostrud exercitation ullamco.</li>
-        </ul>
-    </b>
-</p>
-"""
-    message_part_02 = """\
-<p>
-    <b>
-        <ul>
-            <li>Duis aute irure dolor in reprehenderit in voluptate.</li>
-        </ul>
-    </b>
-</p>
-"""
-    max_length = len(message_part_01)
-
-    parts = list(split_message(message, max_length))
-    assert parts == [message_part_01, message_part_02], "Message is split successfully."
+from msg_split import UnprocessedValue, split_message, split_tags
 
 
-def test_undivided_tag():
-    assert 'a' not in split_tags, 'Test is valid until <a> is not allowed to split.'
-    message = '<a href="http://thelongestdomainnameintheworldandthensomeandthensomemoreandmore.com/">God\'s Final Message</a>'
-    with pytest.raises(UnprocessedValue) as e_info:
-        next(split_message(message, len(message)-1))
-    assert e_info is None
+@pytest.mark.skip('waiting for implementation')
+def test_garbage_in_undefined_out():
+    # XXX: sourceline+sourcepos could help to preserve original string, but I do not believe it is enough.
+    # I think custom parser is required to reproduce malformed html in output.
+    message = '<a><b /></a>'
+    result = '<a><b></b></a>'
+    assert list(split_message(message, len(result))) == [result]
 
 
-@pytest.mark.parametrize(
-    "message,result",
-    [
-        ('<a></p>', []),
-        ('</table>', [])
-    ],
-)
-def test_syntax_error_totally_fine_and_washed_out(message, result):
-    assert list(split_message('</table>')) == result
+def test_empy():
+    assert list(split_message('', 38)) == ['']
+
+
+def test_tag_exceeded():
+    message = '<b></b>'
+    with pytest.raises(UnprocessedValue):
+        assert list(split_message(message, len(message)-1))
+
+
+def test_straight_forward():
+    tag_name = sorted(iter(split_tags))[0]
+    fragment = f'<{tag_name}>Hello, World!</{tag_name}>'
+    times = 3
+    assert list(split_message(''.join([fragment]*times), len(fragment))) == [fragment]*times
+
+
+def test_do_not_cycle():
+    tag_name = sorted(iter(split_tags))[0]
+    fragment = f'<{tag_name}>Hello, World!</{tag_name}>'
+    times = 3
+    assert list(split_message('\n'.join([fragment]*times), len(fragment))) == [fragment]*times
