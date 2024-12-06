@@ -40,3 +40,73 @@ def test_do_not_leave_empty_parents():
     fragment = f'<{tag_name}>Hello, World!</{tag_name}>'
     times = 3
     assert list(split_message('\n'.join([fragment]*times), len(fragment))) == [fragment] +['\n', fragment]*(times-1)
+
+
+def test_blank_nested_do_not_fit():
+    tag_name = sorted(iter(split_tags))[0]
+    message = f'<{tag_name}><{tag_name}><{tag_name}></{tag_name}></{tag_name}></{tag_name}>'
+    with pytest.raises(UnprocessedValue):
+        assert list(split_message(message, max_len=len(message)-1))
+
+
+def test_split_example():
+    message = (
+"""<strong>Done</strong>
+<a href="https://mockdata.atlassian.net/browse/ABC-12427"><code>ABC-12427</code></a> Fusce cursus euismod ligula nec ullamcorper.
+<a href="https://mockdata.atlassian.net/browse/ABC-12452"><code>ABC-12452</code></a> Nam vulputate feugiat.
+<a href="https://mockdata.atlassian.net/browse/ABC-12513"><code>ABC-12513</code></a> Sem, eu cursus neque interdum ac.
+<a href="https://mockdata.atlassian.net/browse/ABC-12580"><code>ABC-12580</code></a> Nulla sodales libero eu lectus gravida varius.
+
+Christan Van der Kruys
+<strong>In progress</strong>
+<a href="https://mockdata.atlassian.net/browse/ABC-12503"><code>ABC-12503</code></a> In sem libero, lobortis eu posuere quis, iaculis sed.
+
+<strong>Done</strong>
+<span>
+<p>test</p>
+<a href="https://mockdata.atlassian.net/browse/ABC-11872"><code>ABC-11872</code></a> Etiam cursus nisi eget tortor feugiat.
+<a href="https://mockdata.atlassian.net/browse/ABC-12129"><code>ABC-12129</code></a> Non congue tortor cursus.
+<div>
+<a href="https://mockdata.atlassian.net/browse/ABC-12354"><code>ABC-12354</code></a> Ut finibus urna sed lorem elementum.
+<a href="https://mockdata.atlassian.net/browse/ABC-12398"><code>ABC-12398</code></a> Eget tristique magna vulputate.
+<a href="https://mockdata.atlassian.net/browse/ABC-12455"><code>ABC-12455</code></a> Sed a orci at turpis commodo semper quis vitae erat.
+<a href="https://mockdata.atlassian.net/browse/ABC-12522"><code>ABC-12522</code></a> Quis purus et augue varius egestas
+</div>
+<a href="https://mockdata.atlassian.net/browse/ABC-12538"><code>ABC-12538</code></a> Aliquam ac sollicitudin neque.
+</span>
+Millie Isaksson
+<strong>In progress</strong>
+<a href="https://mockdata.atlassian.net/browse/ABC-12062"><code>ABC-12062</code></a> Duis rhoncus venenatis risus in mollis.
+
+""")
+    assert list(split_message(message, 1107+6+7+1)) == [
+"""<strong>Done</strong>
+<a href="https://mockdata.atlassian.net/browse/ABC-12427"><code>ABC-12427</code></a> Fusce cursus euismod ligula nec ullamcorper.
+<a href="https://mockdata.atlassian.net/browse/ABC-12452"><code>ABC-12452</code></a> Nam vulputate feugiat.
+<a href="https://mockdata.atlassian.net/browse/ABC-12513"><code>ABC-12513</code></a> Sem, eu cursus neque interdum ac.
+<a href="https://mockdata.atlassian.net/browse/ABC-12580"><code>ABC-12580</code></a> Nulla sodales libero eu lectus gravida varius.
+
+Christan Van der Kruys
+<strong>In progress</strong>
+<a href="https://mockdata.atlassian.net/browse/ABC-12503"><code>ABC-12503</code></a> In sem libero, lobortis eu posuere quis, iaculis sed.
+
+<strong>Done</strong>
+<span>
+<p>test</p>
+<a href="https://mockdata.atlassian.net/browse/ABC-11872"><code>ABC-11872</code></a> Etiam cursus nisi eget tortor feugiat.
+<a href="https://mockdata.atlassian.net/browse/ABC-12129"><code>ABC-12129</code></a> Non congue tortor cursus.
+<div>
+<a href="https://mockdata.atlassian.net/browse/ABC-12354"><code>ABC-12354</code></a> Ut finibus urna sed lorem elementum.
+</div></span>""",
+"""<span><div><a href="https://mockdata.atlassian.net/browse/ABC-12398"><code>ABC-12398</code></a> Eget tristique magna vulputate.
+<a href="https://mockdata.atlassian.net/browse/ABC-12455"><code>ABC-12455</code></a> Sed a orci at turpis commodo semper quis vitae erat.
+<a href="https://mockdata.atlassian.net/browse/ABC-12522"><code>ABC-12522</code></a> Quis purus et augue varius egestas
+</div>
+<a href="https://mockdata.atlassian.net/browse/ABC-12538"><code>ABC-12538</code></a> Aliquam ac sollicitudin neque.
+</span>
+Millie Isaksson
+<strong>In progress</strong>
+<a href="https://mockdata.atlassian.net/browse/ABC-12062"><code>ABC-12062</code></a> Duis rhoncus venenatis risus in mollis.
+
+"""
+    ]
