@@ -127,8 +127,8 @@ I would like to make a case with outer atomic tag and inside decomposable conten
     assert list(split_message(message, 180)) == [
 """\
 <p>
-I would like to make a case with outer atomic tag and inside decomposable content.</p>
-""",
+I would like to make a case with outer atomic tag and inside decomposable content.
+</p>""",
 """<p><a href="https://www.linkedin.com/in/stepan-bakshaev/">Link to <strong>Author</strong> of <b>the source code</b>.</a>
 </p>
 """
@@ -137,7 +137,7 @@ I would like to make a case with outer atomic tag and inside decomposable conten
 
 def test_split_tags_1():
     assert 'li' not in split_tags, 'Pre-requirements.'
-    assert 'p' in split_tags, 'Pre-requirements.'
+    assert {'p', 'ul', 'strong', 'i'} <= split_tags, 'Pre-requirements.'
     message = (
 """\
 <p>
@@ -153,11 +153,10 @@ Ocaml is the best language for business projects. There are advantages:
 """\
 <p>
 Ocaml is the best language for business projects. There are advantages:
-</p>
-""",
-"""<p><ul>
-    <li>there is no <strong>GIL</strong></li>
-    <li><i>soundness</i> type system</li>
+<ul>
+</ul></p>""",
+"""<p><ul><li>there is no <strong>GIL</strong></li>
+<li><i>soundness</i> type system</li>
 </ul>
 </p>
 """

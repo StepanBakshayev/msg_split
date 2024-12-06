@@ -24,6 +24,17 @@ Automata = Enum('Automata', 'pull push drain stop')
 Event = Enum('Event', ((name, getattr(Tag, name)) for name in 'START_ELEMENT_EVENT END_ELEMENT_EVENT EMPTY_ELEMENT_EVENT STRING_ELEMENT_EVENT'.split()))
 
 
+def dump_element(element):
+    if element is None:
+        return None
+    parents = [element.name]
+    node = element.parent
+    while node:
+        parents.append(node.name)
+        node = node.parent
+    return '/'.join(reversed(parents))
+
+
 def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
     """Splits the original message (`source`) into fragments of the specified length
     (`max_len`)."""
@@ -50,6 +61,7 @@ def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
     forward = []
     elements = []
     backward = []
+    atomic_index = 0
     parents = []
     parents_length = 0  # it includes all weight from opening and closing tags.
     fragment = ''
@@ -106,6 +118,8 @@ def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
                             forward.append(piece)
                             elements.append(element)
                             backward.append(piece_end)
+                            if atomic_index == len(parents) and element.name in split_tags:
+                                atomic_index += 1
                             parents.append((element, weight))
                             parents_length += weight
 
@@ -116,6 +130,8 @@ def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
                         piece = ''
                         _, weight = parents.pop()
                         parents_length -= weight
+                        if len(parents) < atomic_index:
+                            atomic_index -= 1
 
                     case Event.EMPTY_ELEMENT_EVENT | Event.STRING_ELEMENT_EVENT:
                         piece = element.output_ready(formatter=None)
@@ -143,29 +159,52 @@ def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
 
                 state = Automata.push
 
+                forward_index = len(forward)
+                backward_index = len(backward)
                 parent = element.parent
-                forward_nested_index = len(forward)
-                backward_nested_index = len(backward)
-                for e in reversed(elements):
-                    if e != parent:
-                        break
-                    parent = e.parent
-                    forward_nested_index -= 1
-                    backward_nested_index -= 1
 
-                fragment = ''.join(chain(forward[:forward_nested_index], reversed(backward[:backward_nested_index])))
+                parents_tags = list(map(attrgetter("name"), map(itemgetter(0), parents)))
+                print(f'{atomic_index=} {parents_tags=} {forward=} {forward_index=} {backward=} {backward_index=} parent={dump_element(parent)}')
+
+                if atomic_index < len(parents):
+                    atomic_element = parents[atomic_index][0]
+                    parent = atomic_element.parent
+                    backward_index -= len(parents) - atomic_index
+                    print(f'atomic_element={dump_element(atomic_element)}')
+                    while elements[forward_index-1] != atomic_element:
+                        forward_index -= 1
+                    forward_index -= 1
+
+                print(f'{forward_index=} parent={dump_element(parent)}')
+                while forward_index > 0 and elements[forward_index-1] == parent:
+                    parent = elements[forward_index-1]
+                    forward_index -= 1
+                    backward_index -= 1
+
+                fragment = ''.join(chain(forward[:forward_index], reversed(backward[:backward_index])))
+                print(f'{forward_index=} {backward_index=} {fragment=}')
                 assert len(fragment) <= max_len, ('Fragment length fits max_len', sourceline, sourcepos, fragment[:38], len(fragment), max_len)
                 yield fragment
 
+                budget = 0
+                leading_pieces = forward[forward_index:]
+                leading_elements = elements[forward_index:]
+                descend = backward_index
                 forward.clear()
-                for parent, _ in parents:
+                elements.clear()
+                for parent, weight in parents[:descend]:
                     parent_piece = parent._format_tag(
                         eventual_encoding, formatter, opening=True
                     )
+                    budget += weight
                     forward.append(parent_piece)
                     elements.append(parent)
 
-                budget = parents_length
+                budget += sum(map(len, leading_pieces))
+                forward.extend(leading_pieces)
+                elements.extend(leading_elements)
+
+                print('')
 
     fragment = ''.join(forward+backward)
     assert len(fragment) <= max_len, ('Fragment length fits max_len', sourceline, sourcepos, fragment[:38], len(fragment), max_len)
