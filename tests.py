@@ -50,6 +50,7 @@ def test_blank_nested_do_not_fit():
 
 
 def test_split_example():
+    assert {'span', 'div'} <= split_tags, 'Used tags are in split registry.'
     message = (
 """<strong>Done</strong>
 <a href="https://mockdata.atlassian.net/browse/ABC-12427"><code>ABC-12427</code></a> Fusce cursus euismod ligula nec ullamcorper.
@@ -109,4 +110,63 @@ Millie Isaksson
 <a href="https://mockdata.atlassian.net/browse/ABC-12062"><code>ABC-12062</code></a> Duis rhoncus venenatis risus in mollis.
 
 """
+    ]
+
+
+def test_split_tags_2():
+    assert 'a' not in split_tags, 'Pre-requirements.'
+    assert 'p' in split_tags, 'Pre-requirements.'
+    message = (
+"""\
+<p>
+I would like to make a case with outer atomic tag and inside decomposable content.
+<a href="https://www.linkedin.com/in/stepan-bakshaev/">Link to <strong>Author</strong> of <b>the source code</b>.</a>
+</p>
+"""
+    )
+    assert list(split_message(message, 180)) == [
+"""\
+<p>
+I would like to make a case with outer atomic tag and inside decomposable content.</p>
+""",
+"""<p><a href="https://www.linkedin.com/in/stepan-bakshaev/">Link to <strong>Author</strong> of <b>the source code</b>.</a>
+</p>
+"""
+    ]
+
+
+def test_split_tags_1():
+    assert 'li' not in split_tags, 'Pre-requirements.'
+    assert 'p' in split_tags, 'Pre-requirements.'
+    message = (
+"""\
+<p>
+Ocaml is the best language for business projects. There are advantages:
+<ul>
+    <li>there is no <strong>GIL</strong></li>
+    <li><i>soundness</i> type system</li>
+</ul>
+</p>
+"""
+    )
+    assert list(split_message(message, 111)) == [
+"""\
+<p>
+Ocaml is the best language for business projects. There are advantages:
+</p>
+""",
+"""<p><ul>
+    <li>there is no <strong>GIL</strong></li>
+    <li><i>soundness</i> type system</li>
+</ul>
+</p>
+"""
+    ]
+
+
+def test_nested():
+    message = '<p>Hello!<b><i><strong>World</strong></i></b>!</p>'
+    assert list(split_message(message, 44)) == [
+        '<p>Hello!</p>',
+        '<p><b><i><strong>World</strong></i></b>!</p>'
     ]

@@ -48,7 +48,7 @@ def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
     element_name = None
     weight = 0
     forward = []
-    opening = False
+    elements = []
     backward = []
     parents = []
     parents_length = 0  # it includes all weight from opening and closing tags.
@@ -104,7 +104,7 @@ def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
                             state = Automata.pull
                             budget += weight
                             forward.append(piece)
-                            opening = True
+                            elements.append(element)
                             backward.append(piece_end)
                             parents.append((element, weight))
                             parents_length += weight
@@ -112,7 +112,7 @@ def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
                     case Event.END_ELEMENT_EVENT:
                         state = Automata.pull
                         forward.append(backward.pop())
-                        opening = False
+                        elements.append(None)
                         piece = ''
                         _, weight = parents.pop()
                         parents_length -= weight
@@ -127,7 +127,7 @@ def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
                             state = Automata.pull
                             budget += weight
                             forward.append(piece)
-                            opening = False
+                            elements.append(None)
 
                     case unhandled:
                         raise RuntimeError(f'{sourceline}:{sourcepos}: unhandled event {unhandled!r}.', sourceline, sourcepos, unhandled)
@@ -143,20 +143,27 @@ def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
 
                 state = Automata.push
 
-                if opening:
-                    fragment = ''.join(forward[:-len(backward)])
-                    forward = forward[-len(backward):]
-                else:
-                    fragment = ''.join(chain(forward, reversed(backward)))
-                    forward.clear()
-                    for parent, _ in parents:
-                        parent_piece = parent._format_tag(
-                            eventual_encoding, formatter, opening=True
-                        )
-                        forward.append(parent_piece)
+                parent = element.parent
+                forward_nested_index = len(forward)
+                backward_nested_index = len(backward)
+                for e in reversed(elements):
+                    if e != parent:
+                        break
+                    parent = e.parent
+                    forward_nested_index -= 1
+                    backward_nested_index -= 1
 
+                fragment = ''.join(chain(forward[:forward_nested_index], reversed(backward[:backward_nested_index])))
                 assert len(fragment) <= max_len, ('Fragment length fits max_len', sourceline, sourcepos, fragment[:38], len(fragment), max_len)
                 yield fragment
+
+                forward.clear()
+                for parent, _ in parents:
+                    parent_piece = parent._format_tag(
+                        eventual_encoding, formatter, opening=True
+                    )
+                    forward.append(parent_piece)
+                    elements.append(parent)
 
                 budget = parents_length
 
