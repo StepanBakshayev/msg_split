@@ -97,12 +97,19 @@ def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
     track = PULL
 
     while state is not Automata.stop:
+        assert len(forward) == len(forward_prefix_sum)
+        assert len(forward) == len(elements), (forward, elements)
+        assert len(backward) == len(backward_prefix_sum)
+        assert len(parents) == len(parents_prefix_sum)
+
         if track == CYCLE:
             raise RuntimeError(f'{sourceline}:{sourcepos}: processing is in infinitive cycle.', sourceline, sourcepos)
 
         if __debug__:
             print(f'{state=!s} <=')
             print(f'\t{size=}/{fragment_len=} ? {max_len=}')
+            print(f'\t{forward_prefix_sum=}')
+            print(f'\t{backward_prefix_sum=}')
             if state is not Automata.pull:
                 print(f'\t{event=!s} {element_name=}')
                 print(f'\tpath={dump_element(element)}')
@@ -131,6 +138,7 @@ def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
 
             case Automata.collect:
                 track += 1
+                fragment_len = forward_prefix_sum[-1] + backward_prefix_sum[-1]
                 match event:
                     case Event.START_ELEMENT_EVENT:
                         piece = element._format_tag(
@@ -163,7 +171,7 @@ def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
                     case Event.END_ELEMENT_EVENT:
                         state = Automata.pull
                         forward.append(backward.pop())
-                        forward_prefix_sum.append(backward_prefix_sum.pop()-backward_prefix_sum[-1])
+                        forward_prefix_sum.append(forward_prefix_sum[-1]+backward_prefix_sum.pop()-backward_prefix_sum[-1])
                         elements.append(None)
                         parents.pop()
                         parents_prefix_sum.pop()
@@ -194,8 +202,6 @@ def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
                         # size is only parents tags.
                         size = parents_prefix_sum[-1]
 
-                    fragment_len = forward_prefix_sum[-1] + backward_prefix_sum[-1]
-
             case Automata.drain:
                 if size + weight > max_len:
                     parents_tags = list(map(attrgetter("name"), map(itemgetter(0), parents)))
@@ -210,51 +216,51 @@ def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
                 if atomic_forward_index != -1:
                     raise NotImplementedError
 
-                # skip chain of parent-first child from output, like "<p><strong><i><b>".
-
-                forward_index = len(forward)
-                backward_index = len(backward)
+                # remove chain of parent-first child from output, like "<p><strong><i><b>".
                 parent = element.parent
+                forward_skip_index = len(forward)
+                backward_skip_index = len(backward)
+                # forward starts with ''
+                print(f'parent={dump_element(parent)} {forward_skip_index=} {elements=}')
+                for _ in range(forward_skip_index, 0, -1):
+                    e = elements[forward_skip_index-1]
+                    print(f'{forward_skip_index-1=} e={dump_element(e)}')
+                    if e != parent:
+                        break
+                    forward_skip_index -= 1
+                    backward_skip_index -= 1
+                    parent = e.parent
 
-                parents_tags = list(map(attrgetter("name"), map(itemgetter(0), parents)))
-                print(f'{atomic_index=} {parents_tags=} {forward=} {forward_index=} {backward=} {backward_index=} parent={dump_element(parent)}')
+                print(f'{forward_skip_index=}/{len(forward)} {backward_skip_index=}/{len(backward)}')
+                print(f'{forward=}')
+                print(f'{backward=}')
 
-                if atomic_index < len(parents):
-                    atomic_element = parents[atomic_index][0]
-                    parent = atomic_element.parent
-                    backward_index -= len(parents) - atomic_index
-                    print(f'atomic_element={dump_element(atomic_element)}')
-                    while elements[forward_index-1] != atomic_element:
-                        forward_index -= 1
-                    forward_index -= 1
-
-                print(f'{forward_index=} parent={dump_element(parent)}')
-                while forward_index > 0 and elements[forward_index-1] == parent:
-                    parent = elements[forward_index-1]
-                    forward_index -= 1
-                    backward_index -= 1
-
-                fragment = ''.join(chain(forward[:forward_index], reversed(backward[:backward_index])))
-                print(f'{forward_index=} {backward_index=} {fragment=}')
+                fragment = ''.join(chain(forward[:forward_skip_index], reversed(backward[:backward_skip_index])))
                 assert len(fragment) <= max_len, ('Fragment length fits max_len', sourceline, sourcepos, fragment[:38], len(fragment), max_len)
                 yield fragment
 
-                budget = 0
-                leading_pieces = forward[forward_index:]
-                leading_elements = elements[forward_index:]
-                descend = backward_index
+                if atomic_forward_index != -1:
+                    raise NotImplementedError
+
+                # backward stay the same.
                 forward.clear()
+                forward.append('')
+                forward_prefix_sum.clear()
+                forward_prefix_sum.append(0)
                 elements.clear()
-                for parent, weight in parents[:descend]:
-                    parent_piece = parent._format_tag(
+                elements.extend(parents)
+
+                descend = len(parents)
+                for index in range(1, descend):
+                    # XXX: Should it be cached in parents_opening?
+                    parent_piece = parents[index]._format_tag(
                         eventual_encoding, formatter, opening=True
                     )
                     forward.append(parent_piece)
-                    elements.append(parent)
+                    forward_prefix_sum.append(parents_prefix_sum[index]-backward_prefix_sum[index])
 
-                forward.extend(leading_pieces)
-                elements.extend(leading_elements)
-
+                print(f'{forward=}')
+                print(f'{backward=}')
                 print(f'{fragment=}')
                 print('---')
                 fragment = None
