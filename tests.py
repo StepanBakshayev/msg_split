@@ -2,7 +2,6 @@ import pytest
 
 from msg_split import UnprocessedValue, split_message, split_tags
 
-
 # XXX: html.parser squashes spaces in some cases to new line. Do not use spaces in original message for indentation.
 
 def test_garbage_in_undefined_out():

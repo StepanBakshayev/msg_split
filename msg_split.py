@@ -17,7 +17,7 @@ class UnprocessedValue(Exception):
 split_tags = frozenset("p b strong i ul ol div span".split(' '))  # ? | {BeautifulSoup.ROOT_TAG_NAME}
 
 
-Automata = Enum('Automata', 'pull push drain stop')
+Automata = Enum('Automata', 'pull collect drain stop')
 
 
 # XXX: I am tired of <object object at 0x77e9eff78e70>
@@ -32,16 +32,22 @@ def dump_element(element):
     while node:
         parents.append(node.name)
         node = node.parent
-    return '/'.join(reversed(parents))
+    return '/'.join(map(str, reversed(parents)))
 
 
 def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
     """Splits the original message (`source`) into fragments of the specified length
     (`max_len`)."""
+    # The task is mess of implementation details (BeautifulSoup, html.parser), mistakes, obscures, and gaps
+    # in the description, knowledge field, corner cases. But the core idea is simple.
+    # All you have to do is to calculate minimal size of characters around piece you take from html
+    # and push to fragment.
+    # The implementation is built around idea to not add more complexity to time and space html parsing takes already.
+    # There are dirty places of calling Tag._format_tag. I think nobody notice and we are here not dealing with C
+    # and developing GTA 5 to get N².
 
     if max_len <= 1:
         raise ValueError(f'max_len argument ({max_len!r}) must be more then 0.', max_len)
-
 
     try:
         soup = BeautifulSoup(source, 'html.parser')
@@ -63,29 +69,31 @@ def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
     weight = 0
 
     # State is about fragment.
+    # size is minimal amount of characters to put element into fragment.
+    size = 0
+    # fragment_len is total amount of characters.
+    fragment_len = 0
     # The word atom is derived from the ancient Greek word atomos, which means "uncuttable".
     # An index of uncuttable block tag.
     atomic_forward_index = -1
     atomic_backward_index = -1
     atomic_parent_index = -1
     # _prefix_sum accumulates occupied positions from fragment with max_len.
-    forward = []
-    forward_prefix_sum = []
-    backward = []
-    backward_prefix_sum = []
-    elements = []
-    parents = []
-    parents_prefix_sum = []
-
-    # Keep reference for a while for debug purpose.
-    fragment = ''
+    forward = ['']
+    forward_prefix_sum = [0]
+    backward = ['']
+    backward_prefix_sum = [0]
+    # XXX: is it any sense of elements now?
+    elements = [None]  # it is in sync with forward.
+    parents = [None]
+    parents_prefix_sum = [0]
 
     # State is about automata.
     state = Automata.pull
     # PULL resets track (0 value). Each other step increments track by 1.
     # 4       0    +1   +1    +1   +1
-    # CYCLE = PULL_PUSH_DRAIN_PUSH_DRAIN
-    PULL, PULL_PUSH, PULL_PUSH_DRAIN, PULL_PUSH_DRAIN_PUSH, CYCLE = range(5)
+    # CYCLE = PULL_COLLECT_DRAIN_COLLECT_DRAIN
+    PULL, PULL_COLLECT, PULL_COLLECT_DRAIN, PULL_COLLECT_DRAIN_COLLECT, CYCLE = range(5)
     track = PULL
 
     while state is not Automata.stop:
@@ -93,7 +101,11 @@ def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
             raise RuntimeError(f'{sourceline}:{sourcepos}: processing is in infinitive cycle.', sourceline, sourcepos)
 
         if __debug__:
-            print(f'{budget=}/{max_len=} {state=!s} {fragment=} {event=!s} {parents_length=} {element_name=} {weight=} {piece=}')
+            print(f'{state=!s} <=')
+            print(f'\t{size=}/{fragment_len=} ? {max_len=}')
+            if state is not Automata.pull:
+                print(f'\t{event=!s} {element_name=}')
+                print(f'\tpath={dump_element(element)}')
 
         match state:
             case Automata.pull:
@@ -103,7 +115,7 @@ def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
 
                 else:
                     track = PULL
-                    state = Automata.push
+                    state = Automata.collect
 
                     tag_event, element = pair
                     if tag_event not in Event:
@@ -117,7 +129,7 @@ def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
                         if element.sourcepos is not None and element.sourcepos > sourcepos:
                             sourcepos = element.sourcepos
 
-            case Automata.push:
+            case Automata.collect:
                 track += 1
                 match event:
                     case Event.START_ELEMENT_EVENT:
@@ -128,55 +140,77 @@ def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
                             eventual_encoding, formatter, opening=False
                         )
                         weight = len(piece) + len(piece_end)
-                        if weight + budget > max_len:
+
+                        if fragment_len + weight > max_len:
                             state = Automata.drain
 
                         else:
                             state = Automata.pull
-                            budget += weight
+                            if element.name not in split_tags:
+                                # set length as value, because next step is append.
+                                atomic_forward_index = len(forward)
+                                atomic_backward_index = len(backward)
+                                atomic_parent_index = len(parents)
                             forward.append(piece)
-                            elements.append(element)
+                            forward_prefix_sum.append(forward_prefix_sum[-1]+len(piece))
                             backward.append(piece_end)
-                            if atomic_index == len(parents) and element.name in split_tags:
-                                atomic_index += 1
-                            parents.append((element, weight))
-                            parents_length += weight
+                            backward_prefix_sum.append(backward_prefix_sum[-1]+len(piece_end))
+                            elements.append(element)
+                            parents.append(element)
+                            parents_prefix_sum.append(parents_prefix_sum[-1]+weight)
 
+                    # space for closing tag is reserved up front. It does not change sum.
                     case Event.END_ELEMENT_EVENT:
                         state = Automata.pull
                         forward.append(backward.pop())
+                        forward_prefix_sum.append(backward_prefix_sum.pop()-backward_prefix_sum[-1])
                         elements.append(None)
-                        piece = ''
-                        _, weight = parents.pop()
-                        parents_length -= weight
-                        if len(parents) < atomic_index:
-                            atomic_index -= 1
+                        parents.pop()
+                        parents_prefix_sum.pop()
+                        if len(parents) <= atomic_parent_index:
+                            atomic_forward_index = -1
+                            atomic_backward_index = -1
+                            atomic_parent_index = -1
 
                     case Event.EMPTY_ELEMENT_EVENT | Event.STRING_ELEMENT_EVENT:
                         piece = element.output_ready(formatter=None)
                         weight = len(piece)
-                        if weight + budget > max_len:
+                        if fragment_len + weight > max_len:
                             state = Automata.drain
 
                         else:
                             state = Automata.pull
-                            budget += weight
                             forward.append(piece)
+                            forward_prefix_sum.append(forward_prefix_sum[-1]+weight)
                             elements.append(None)
 
                     case unhandled:
                         raise RuntimeError(f'{sourceline}:{sourcepos}: unhandled event {unhandled!r}.', sourceline, sourcepos, unhandled)
 
+                if state is not Automata.drain:
+                    if atomic_forward_index != -1:
+                        raise NotImplementedError
+                    else:
+                        # size is only parents tags.
+                        size = parents_prefix_sum[-1]
+
+                    fragment_len = forward_prefix_sum[-1] + backward_prefix_sum[-1]
+
             case Automata.drain:
-                track += 1
-                if parents_length + weight > max_len:
+                if size + weight > max_len:
                     parents_tags = list(map(attrgetter("name"), map(itemgetter(0), parents)))
                     raise UnprocessedValue(
                         f'{sourceline}:{sourcepos}: piece {piece[:38]!r} and html around {"/".join(parents_tags)} cannot fit max_len ({max_len}).',
                         sourceline, sourcepos, piece, parents_tags, max_len
                     )
 
-                state = Automata.push
+                track += 1
+                state = Automata.collect
+
+                if atomic_forward_index != -1:
+                    raise NotImplementedError
+
+                # skip chain of parent-first child from output, like "<p><strong><i><b>".
 
                 forward_index = len(forward)
                 backward_index = len(backward)
@@ -215,17 +249,20 @@ def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
                     parent_piece = parent._format_tag(
                         eventual_encoding, formatter, opening=True
                     )
-                    budget += weight
                     forward.append(parent_piece)
                     elements.append(parent)
 
-                budget += sum(map(len, leading_pieces))
                 forward.extend(leading_pieces)
                 elements.extend(leading_elements)
 
-                print('')
+                print(f'{fragment=}')
+                print('---')
+                fragment = None
 
-    fragment = ''.join(forward+backward)
+        if __debug__:
+            print('')
+
+    fragment = ''.join(chain(forward, backward))
     assert len(fragment) <= max_len, ('Fragment length fits max_len', sourceline, sourcepos, fragment[:38], len(fragment), max_len)
     yield fragment
 
