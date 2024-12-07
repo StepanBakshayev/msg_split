@@ -42,33 +42,52 @@ def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
     if max_len <= 1:
         raise ValueError(f'max_len argument ({max_len!r}) must be more then 0.', max_len)
 
-    sourceline = 0
-    sourcepos = 0
 
     try:
         soup = BeautifulSoup(source, 'html.parser')
     except Exception as e:
+        sourceline = None
+        sourcepos = None
         raise UnprocessedValue(f'{sourceline}:{sourcepos}: source cannot be parsed.', sourceline, sourcepos) from e
 
     eventual_encoding = 'utf-8'
     formatter = soup.formatter_for_name('minimal')
 
-    budget = 0
+    # State is about element from a stream to push in a fragment.
+    events = soup._event_stream()
+    sourceline = 0
+    sourcepos = 0
     piece = ''
     event, element = None, None
     element_name = None
     weight = 0
+
+    # State is about fragment.
+    # The word atom is derived from the ancient Greek word atomos, which means "uncuttable".
+    # An index of uncuttable block tag.
+    atomic_forward_index = -1
+    atomic_backward_index = -1
+    atomic_parent_index = -1
+    # _prefix_sum accumulates occupied positions from fragment with max_len.
     forward = []
-    elements = []
+    forward_prefix_sum = []
     backward = []
-    atomic_index = 0
+    backward_prefix_sum = []
+    elements = []
     parents = []
-    parents_length = 0  # it includes all weight from opening and closing tags.
+    parents_prefix_sum = []
+
+    # Keep reference for a while for debug purpose.
     fragment = ''
-    events = soup._event_stream()
+
+    # State is about automata.
     state = Automata.pull
-    PULL, PUSH, PUSH_DRAIN, PUSH_DRAIN_PUSH, CYCLE = range(5)
+    # PULL resets track (0 value). Each other step increments track by 1.
+    # 4       0    +1   +1    +1   +1
+    # CYCLE = PULL_PUSH_DRAIN_PUSH_DRAIN
+    PULL, PULL_PUSH, PULL_PUSH_DRAIN, PULL_PUSH_DRAIN_PUSH, CYCLE = range(5)
     track = PULL
+
     while state is not Automata.stop:
         if track == CYCLE:
             raise RuntimeError(f'{sourceline}:{sourcepos}: processing is in infinitive cycle.', sourceline, sourcepos)

@@ -3,6 +3,8 @@ import pytest
 from msg_split import UnprocessedValue, split_message, split_tags
 
 
+# XXX: html.parser squashes spaces in some cases to new line. Do not use spaces in original message for indentation.
+
 def test_garbage_in_undefined_out():
     # XXX: sourceline+sourcepos could help to preserve original string, but I do not believe it is enough.
     # I think custom parser is required to reproduce malformed html in output.
@@ -143,8 +145,8 @@ def test_split_tags_1():
 <p>
 Ocaml is the best language for business projects. There are advantages:
 <ul>
-    <li>there is no <strong>GIL</strong></li>
-    <li><i>soundness</i> type system</li>
+<li>there is no <strong>GIL</strong></li>
+<li><i>soundness</i> type system</li>
 </ul>
 </p>
 """
