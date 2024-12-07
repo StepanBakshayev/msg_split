@@ -204,7 +204,7 @@ def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
 
             case Automata.drain:
                 if size + weight > max_len:
-                    parents_tags = list(map(attrgetter("name"), map(itemgetter(0), parents)))
+                    parents_tags = list(map(attrgetter("name"), parents[1:]))
                     raise UnprocessedValue(
                         f'{sourceline}:{sourcepos}: piece {piece[:38]!r} and html around {"/".join(parents_tags)} cannot fit max_len ({max_len}).',
                         sourceline, sourcepos, piece, parents_tags, max_len
@@ -234,6 +234,7 @@ def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
                 print(f'{forward_skip_index=}/{len(forward)} {backward_skip_index=}/{len(backward)}')
                 print(f'{forward=}')
                 print(f'{backward=}')
+                print('>>yield>>')
 
                 fragment = ''.join(chain(forward[:forward_skip_index], reversed(backward[:backward_skip_index])))
                 assert len(fragment) <= max_len, ('Fragment length fits max_len', sourceline, sourcepos, fragment[:38], len(fragment), max_len)
