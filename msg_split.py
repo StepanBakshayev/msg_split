@@ -1,3 +1,11 @@
+"""
+This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License.
+This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+You should have received a copy of the GNU General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+Author Stepan Bakshaev, 2024.
+Contact stepan.bakshaev@keemail.me
+"""
 from argparse import ArgumentParser
 from enum import Enum
 from itertools import chain
@@ -104,15 +112,6 @@ def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
 
         if track == CYCLE:
             raise RuntimeError(f'{sourceline}:{sourcepos}: processing is in infinitive cycle.', sourceline, sourcepos)
-
-        if __debug__:
-            print(f'{state=!s} <=')
-            print(f'\t{size=}/{fragment_len=} ? {max_len=}')
-            print(f'\t{forward_prefix_sum=}')
-            print(f'\t{backward_prefix_sum=}')
-            if state is not Automata.pull:
-                print(f'\t{event=!s} {element_name=}')
-                print(f'\tpath={dump_element(element)}')
 
         match state:
             case Automata.pull:
@@ -229,20 +228,13 @@ def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
                     backward_skip_index = atomic_backward_index
 
                 # forward starts with ''
-                print(f'parent={dump_element(parent)} {forward_skip_index=} {elements=}')
                 for _ in range(forward_skip_index, 0, -1):
                     e = elements[forward_skip_index-1]
-                    print(f'{forward_skip_index-1=} e={dump_element(e)}')
                     if e != parent:
                         break
                     forward_skip_index -= 1
                     backward_skip_index -= 1
                     parent = e.parent
-
-                print(f'{forward_skip_index=}/{len(forward)} {backward_skip_index=}/{len(backward)}')
-                print(f'{forward=}')
-                print(f'{backward=}')
-                print('>>yield>>')
 
                 fragment = ''.join(chain(forward[:forward_skip_index], reversed(backward[:backward_skip_index])))
                 assert len(fragment) <= max_len, ('Fragment length fits max_len', sourceline, sourcepos, fragment[:38], len(fragment), max_len)
@@ -259,7 +251,7 @@ def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
                     leading_prefix_sum = [s - initial for s in forward_prefix_sum[atomic_forward_index+1:]]
                     descend = atomic_parent_index+1
 
-                # backward stay the same.
+                # backward stays the same.
                 forward.clear()
                 forward.append('')
                 forward_prefix_sum.clear()
@@ -281,20 +273,11 @@ def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
                     forward_prefix_sum.extend(map(lambda s: s+initial, leading_prefix_sum))
                     elements.extend(leading_elements)
 
-                print(f'{forward=}')
-                print(f'{backward=}')
-                print(f'{fragment=}')
-                print('---')
                 fragment = None
-
-        if __debug__:
-            print('')
 
     fragment = ''.join(chain(forward, backward))
     assert len(fragment) <= max_len, ('Fragment length fits max_len', sourceline, sourcepos, fragment[:38], len(fragment), max_len)
     yield fragment
-    print(f'{fragment=}')
-    print('---')
 
 
 def main(opts):
