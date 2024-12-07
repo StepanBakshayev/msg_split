@@ -136,7 +136,7 @@ I would like to make a case with outer atomic tag and inside decomposable conten
     ]
 
 
-def test_split_tags_1():
+def test_split_tags_1_collapse_nested_without_semantic():
     assert 'li' not in split_tags, 'Pre-requirements.'
     assert {'p', 'ul', 'strong', 'i'} <= split_tags, 'Pre-requirements.'
     message = (

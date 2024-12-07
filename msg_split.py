@@ -197,7 +197,10 @@ def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
 
                 if state is not Automata.drain:
                     if atomic_forward_index != -1:
-                        raise NotImplementedError
+                        # size is direct parent surround, self, content.
+                        size_parent = parents_prefix_sum[atomic_parent_index]  # includes self
+                        size_content = forward_prefix_sum[-1] - forward_prefix_sum[atomic_forward_index]
+                        size = size_parent + size_content
                     else:
                         # size is only parents tags.
                         size = parents_prefix_sum[-1]
@@ -213,13 +216,18 @@ def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
                 track += 1
                 state = Automata.collect
 
-                if atomic_forward_index != -1:
-                    raise NotImplementedError
-
                 # remove chain of parent-first child from output, like "<p><strong><i><b>".
+                # The algorithm does not account semantics. Means ['<ul>', '\n', '<li>'] produces ['<ul>', '\n'].
                 parent = element.parent
                 forward_skip_index = len(forward)
                 backward_skip_index = len(backward)
+
+                # ...but before pull atomic part.
+                if atomic_forward_index != -1:
+                    parent = elements[atomic_forward_index].parent
+                    forward_skip_index = atomic_forward_index
+                    backward_skip_index = atomic_backward_index
+
                 # forward starts with ''
                 print(f'parent={dump_element(parent)} {forward_skip_index=} {elements=}')
                 for _ in range(forward_skip_index, 0, -1):
@@ -240,8 +248,16 @@ def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
                 assert len(fragment) <= max_len, ('Fragment length fits max_len', sourceline, sourcepos, fragment[:38], len(fragment), max_len)
                 yield fragment
 
+                descend = len(parents)
+                leading = []
+                leading_elements = []
+                leading_prefix_sum = []
                 if atomic_forward_index != -1:
-                    raise NotImplementedError
+                    leading = forward[atomic_forward_index+1:]
+                    leading_elements = elements[atomic_forward_index+1:]
+                    initial = forward_prefix_sum[atomic_forward_index]
+                    leading_prefix_sum = [s - initial for s in forward_prefix_sum[atomic_forward_index+1:]]
+                    descend = atomic_parent_index+1
 
                 # backward stay the same.
                 forward.clear()
@@ -249,9 +265,8 @@ def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
                 forward_prefix_sum.clear()
                 forward_prefix_sum.append(0)
                 elements.clear()
-                elements.extend(parents)
+                elements.extend(parents[:descend])
 
-                descend = len(parents)
                 for index in range(1, descend):
                     # XXX: Should it be cached in parents_opening?
                     parent_piece = parents[index]._format_tag(
@@ -259,6 +274,12 @@ def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
                     )
                     forward.append(parent_piece)
                     forward_prefix_sum.append(parents_prefix_sum[index]-backward_prefix_sum[index])
+
+                if atomic_forward_index != -1:
+                    forward.extend(leading)
+                    initial = forward_prefix_sum[-1]
+                    forward_prefix_sum.extend(map(lambda s: s+initial, leading_prefix_sum))
+                    elements.extend(leading_elements)
 
                 print(f'{forward=}')
                 print(f'{backward=}')
@@ -272,6 +293,8 @@ def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
     fragment = ''.join(chain(forward, backward))
     assert len(fragment) <= max_len, ('Fragment length fits max_len', sourceline, sourcepos, fragment[:38], len(fragment), max_len)
     yield fragment
+    print(f'{fragment=}')
+    print('---')
 
 
 def main(opts):
