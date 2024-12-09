@@ -17,7 +17,8 @@ def test_garbage_in_undefined_out():
     # I think custom parser is required to reproduce malformed html in output.
     message = '<a><b /></a>'
     result = '<a><b></b></a>'
-    assert list(split_message(message, len(result))) == [result]
+    # if message is equal or less than max_len result is untouched.
+    assert list(split_message(message, len(message))) == [message]
 
 
 def test_empy():

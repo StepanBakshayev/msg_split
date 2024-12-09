@@ -57,6 +57,11 @@ def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
     if max_len <= 1:
         raise ValueError(f'max_len argument ({max_len!r}) must be more then 0.', max_len)
 
+    # shortcut
+    if len(source) <= max_len:
+        yield source
+        return
+
     try:
         soup = BeautifulSoup(source, 'html.parser')
     except Exception as e:
@@ -275,9 +280,11 @@ def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
 
                 fragment = None
 
-    fragment = ''.join(chain(forward, backward))
-    assert len(fragment) <= max_len, ('Fragment length fits max_len', sourceline, sourcepos, fragment[:38], len(fragment), max_len)
-    yield fragment
+    # do not yield empty string
+    if forward or backward:
+        fragment = ''.join(chain(forward, backward))
+        assert len(fragment) <= max_len, ('Fragment length fits max_len', sourceline, sourcepos, fragment[:38], len(fragment), max_len)
+        yield fragment
 
 
 def main(opts):
