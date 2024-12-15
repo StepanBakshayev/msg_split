@@ -9,11 +9,11 @@ Contact stepan.bakshaev@keemail.me
 from argparse import ArgumentParser
 from enum import Enum
 from itertools import chain
-from operator import attrgetter, itemgetter
+from operator import attrgetter
 from typing import Iterator
 
 from bs4 import BeautifulSoup
-from bs4.element import Tag, PageElement
+from bs4.element import PageElement, Tag
 
 MAX_LEN = 4096
 

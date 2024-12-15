@@ -7,6 +7,7 @@ Author Stepan Bakshaev, 2024.
 Contact stepan.bakshaev@keemail.me
 """
 import pytest
+from bs4 import BeautifulSoup
 
 from msg_split import UnprocessedValue, split_message, split_tags
 
@@ -32,28 +33,28 @@ def test_tag_exceeded():
 
 
 def test_straight_forward():
-    tag_name = sorted(iter(split_tags))[0]
+    tag_name = sorted(iter(split_tags-{BeautifulSoup.ROOT_TAG_NAME}))[0]
     fragment = f'<{tag_name}>Hello, World!</{tag_name}>'
     times = 3
     assert list(split_message(''.join([fragment]*times), len(fragment))) == [fragment]*times
 
 
 def test_do_not_cycle():
-    tag_name = sorted(iter(split_tags))[0]
+    tag_name = sorted(iter(split_tags-{BeautifulSoup.ROOT_TAG_NAME}))[0]
     fragment = f'<{tag_name}>Hello, World!</{tag_name}>'
     times = 3
     assert list(split_message('\n'.join([fragment]*times), len(fragment)))
 
 
 def test_do_not_leave_empty_parents():
-    tag_name = sorted(iter(split_tags))[0]
+    tag_name = sorted(iter(split_tags-{BeautifulSoup.ROOT_TAG_NAME}))[0]
     fragment = f'<{tag_name}>Hello, World!</{tag_name}>'
     times = 3
     assert list(split_message('\n'.join([fragment]*times), len(fragment))) == [fragment] +['\n', fragment]*(times-1)
 
 
 def test_blank_nested_do_not_fit():
-    tag_name = sorted(iter(split_tags))[0]
+    tag_name = sorted(iter(split_tags-{BeautifulSoup.ROOT_TAG_NAME}))[0]
     message = f'<{tag_name}><{tag_name}><{tag_name}></{tag_name}></{tag_name}></{tag_name}>'
     with pytest.raises(UnprocessedValue):
         assert list(split_message(message, max_len=len(message)-1))

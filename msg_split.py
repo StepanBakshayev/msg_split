@@ -7,15 +7,12 @@ Author Stepan Bakshaev, 2024.
 Contact stepan.bakshaev@keemail.me
 """
 from argparse import ArgumentParser
-from copy import deepcopy
 from dataclasses import dataclass
-from enum import Enum
 from itertools import chain
-from operator import attrgetter, itemgetter
-from typing import Iterator, Type
+from typing import Iterator
 
 from bs4 import BeautifulSoup
-from bs4.element import Tag, PageElement, NavigableString
+from bs4.element import NavigableString, PageElement, Tag
 
 MAX_LEN = 4096
 
@@ -27,23 +24,6 @@ class UnprocessedValue(Exception):
 split_tags = frozenset("p b strong i ul ol div span".split(' ')) | {BeautifulSoup.ROOT_TAG_NAME}
 
 
-def measure(node: Type[PageElement], eventual_encoding, formatter) -> int:
-    """
-    Utility to get length of node.
-    """
-    if isinstance(node, Tag) and not node.is_empty_element:
-        piece = node._format_tag(
-            eventual_encoding, formatter, opening=True
-        )
-        piece_end = node._format_tag(
-            eventual_encoding, formatter, opening=False
-        )
-        return len(piece) + len(piece_end)
-    else:
-        piece = node.output_ready(formatter=formatter)
-        return len(piece)
-
-
 @dataclass
 class Environment:
     """
@@ -52,12 +32,10 @@ class Environment:
     consumed: int  # overall length of fragment
     max_len: int  # limit for length
     forward: list[str]  # leading text chunks of fragment
-    # forward_prefix_sum: list[int]
-    backward: list[str] # closing tags, tail of text chunks of fragment
-    # backward_prefix_sum: list[int]
+    backward: list[str]  # closing tags, tail of text chunks of fragment
     first_child: list[bool]  # it is used for cut parent-first_child from fragment.
     eventual_encoding: str  # BeautifulSoup
-    formatter: str  # BeautifulSoup
+    formatter: str|None  # BeautifulSoup
 
 
 def walk(source_node: PageElement, environment: Environment, first_child) -> Iterator[Tag]:
@@ -101,6 +79,7 @@ def walk(source_node: PageElement, environment: Environment, first_child) -> Ite
             )
             consumed += len(opening)
             fresh_forward.append(opening)
+        fresh_forward = list(reversed(fresh_forward))
 
         if length + consumed > environment.max_len:
             raise UnprocessedValue(
@@ -123,27 +102,35 @@ def walk(source_node: PageElement, environment: Environment, first_child) -> Ite
         # make fragment
         yield ''.join(chain(environment.forward[:forward_severed], reversed(environment.backward[:backward_severed])))
 
-        # fill forward and backward with source_node parents.
+        # update environment with fresh forward.
+        environment.consumed = consumed
+        environment.forward = fresh_forward
 
-
-
-
-        if source_node.parent is not
-        yield fragment_tree
-
-        # build new tree.
-
-    # copy node from source to destination
+    # It is safe to insert now.
+    environment.consumed += length
+    environment.forward.append(forward)
+    if backward:
+        environment.backward.append(backward)
+    environment.first_child.append(first_child)
 
     # continue with children
-    for child in source_node.content:
-        # delegate draining
-        yield from walk(child, fragment_tree, consumed, max_len, eventual_encoding, formatter)
+    i_contents = iter(contents)
+    first = next(i_contents, None)
+    if first is not None:
+        yield from walk(first, environment, True)
+        for child in i_contents:
+            # delegate draining.
+            yield from walk(child, environment, False)
+
+    # move closing to forward. It is safe, because closing occupies consumption on beginning.
+    if backward:
+        environment.forward.append(environment.backward.pop())
 
 
 def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
     """Splits the original message (`source`) into fragments of the specified length
     (`max_len`)."""
+    # Time complexity is O(N). Space is O(N) with recursion cost. All is addition to html parsing.
     if max_len <= 1:
         raise ValueError(f'max_len argument ({max_len!r}) must be more then 0.', max_len)
 
@@ -159,14 +146,20 @@ def split_message(source: str, max_len=MAX_LEN) -> Iterator[str]:
         sourcepos = None
         raise UnprocessedValue(f'{sourceline}:{sourcepos}: source cannot be parsed.', sourceline, sourcepos) from e
 
-    eventual_encoding = 'utf-8'
-    formatter = soup.formatter_for_name('minimal')
-    tree = BeautifulSoup()
-    for fragment in walk(soup, tree, 0, max_len, eventual_encoding, formatter):
-        yield fragment.decode()
+    environment = Environment(
+        consumed=0,
+        max_len=max_len,
+        forward=[],
+        backward=[],
+        first_child=[],
+        eventual_encoding='utf-8',
+        formatter=soup.formatter_for_name(None)
+    )
+    for fragment in walk(soup, environment, True):
+        yield fragment
 
-    if tree.contents:
-        yield tree.decode()
+    if environment.forward:
+        yield ''.join(chain(environment.forward, reversed(environment.backward)))
 
 
 def main(opts):
